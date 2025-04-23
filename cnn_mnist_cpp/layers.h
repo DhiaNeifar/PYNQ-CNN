@@ -218,41 +218,48 @@ public:
         int out_w = w / pool_size;
 
         Tensor4D out(batch,
-                     std::vector<std::vector<std::vector<double>>>( // Use double
+                     std::vector<std::vector<std::vector<double>>>(
                          channels,
                          std::vector<std::vector<double>>(
-                             out_h, std::vector<double>(out_w)))); // Use double
+                             out_h, std::vector<double>(out_w))));
 
-        mask = x;
+        // Initialize the mask with zeros
+        mask = Tensor4D(batch,
+                        std::vector<std::vector<std::vector<double>>>(
+                            channels,
+                            std::vector<std::vector<double>>(h, std::vector<double>(w, 0.0))));
 
-        for (int b = 0; b < batch; ++b)
-            for (int c = 0; c < channels; ++c)
-                for (int i = 0; i < out_h; ++i)
+        for (int b = 0; b < batch; ++b) {
+            for (int c = 0; c < channels; ++c) {
+                for (int i = 0; i < out_h; ++i) {
                     for (int j = 0; j < out_w; ++j) {
-                        double max_val = -1e9; // Use double
+                        double max_val = -1e9;
                         int max_i = -1, max_j = -1;
-                        for (int m = 0; m < pool_size; ++m)
+
+                        for (int m = 0; m < pool_size; ++m) {
                             for (int n = 0; n < pool_size; ++n) {
                                 int row = i * pool_size + m;
                                 int col = j * pool_size + n;
-                                double val = x[b][c][row][col]; // Use double
+                                double val = x[b][c][row][col];
                                 if (val > max_val) {
                                     max_val = val;
                                     max_i = row;
                                     max_j = col;
                                 }
                             }
+                        }
+
                         out[b][c][i][j] = max_val;
-                        for (int m = 0; m < pool_size; ++m)
-                            for (int n = 0; n < pool_size; ++n)
-                                mask[b][c][i * pool_size + m][j * pool_size + n] = 0.0; // Use double
-                        mask[b][c][max_i][max_j] = 1.0; // Use double
+                        mask[b][c][max_i][max_j] = 1.0;
                     }
+                }
+            }
+        }
 
         return out;
     }
 
-    Tensor4D backward(const Tensor4D& d_out, double) { // Use double
+    Tensor4D backward(const Tensor4D& d_out, double) {
         int batch = d_out.size();
         int channels = d_out[0].size();
         int out_h = d_out[0][0].size();
@@ -260,30 +267,32 @@ public:
         int h = out_h * pool_size;
         int w = out_w * pool_size;
 
-        Tensor4D d_input = input;
+        Tensor4D d_input(batch,
+                         std::vector<std::vector<std::vector<double>>>(
+                             channels,
+                             std::vector<std::vector<double>>(h, std::vector<double>(w, 0.0))));
 
-        for (int b = 0; b < batch; ++b)
-            for (int c = 0; c < channels; ++c)
-                for (int i = 0; i < h; ++i)
-                    for (int j = 0; j < w; ++j)
-                        d_input[b][c][i][j] = 0.0; // Use double
-
-        for (int b = 0; b < batch; ++b)
-            for (int c = 0; c < channels; ++c)
-                for (int i = 0; i < out_h; ++i)
+        for (int b = 0; b < batch; ++b) {
+            for (int c = 0; c < channels; ++c) {
+                for (int i = 0; i < out_h; ++i) {
                     for (int j = 0; j < out_w; ++j) {
-                        for (int m = 0; m < pool_size; ++m)
+                        for (int m = 0; m < pool_size; ++m) {
                             for (int n = 0; n < pool_size; ++n) {
                                 int row = i * pool_size + m;
                                 int col = j * pool_size + n;
                                 if (mask[b][c][row][col] == 1.0)
-                                    d_input[b][c][row][col] = d_out[b][c][i][j]; // Use double
+                                    d_input[b][c][row][col] = d_out[b][c][i][j];
                             }
+                        }
                     }
+                }
+            }
+        }
 
         return d_input;
     }
 };
+
 
 // ───────────────────────────
 // Flatten

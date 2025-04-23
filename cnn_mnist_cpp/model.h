@@ -11,7 +11,8 @@ class CNN {
 public:
     Conv2D c1;
     ReLU r1;
-    Flatten flat;  // ⬅️ Made Flatten persistent
+    MaxPool2D p1;
+    Flatten flat;
     Dense fc2;
     SoftmaxCrossEntropy loss_fn;
 
@@ -20,13 +21,15 @@ public:
     CNN()
         : c1(1, 10, 3),       // 1 input channel, 10 filters, 3x3 kernel
           r1(),
-          fc2(26 * 26 * 10, 10) // ⬅️ 26x26 output after conv (28 - 3 + 1), 10 filters
+          p1(),
+          fc2(13 * 13 * 10, 10) // ⬅️ After Conv(26x26) → MaxPool(13x13), 10 channels
     {}
 
     double forward(const Tensor4D& x, const std::vector<int>& y) {
         Tensor4D out = c1.forward(x);
         out = r1.forward(out);
-        std::vector<std::vector<double>> flat_out = flat.forward(out); // ⬅️ persistent flat used
+        out = p1.forward(out);
+        std::vector<std::vector<double>> flat_out = flat.forward(out);
         logits = fc2.forward(flat_out);
         double loss = loss_fn.forward(logits, y);
         return loss;
@@ -35,7 +38,8 @@ public:
     void backward(double lr) {
         auto grad = loss_fn.backward();
         grad = fc2.backward(grad, lr);
-        Tensor4D grad4D = flat.backward(grad); // ⬅️ now safe to use
+        Tensor4D grad4D = flat.backward(grad);
+        grad4D = p1.backward(grad4D, lr);
         grad4D = r1.backward(grad4D, lr);
         c1.backward(grad4D, lr);
     }
@@ -43,7 +47,8 @@ public:
     std::vector<int> predict(const Tensor4D& x) {
         Tensor4D out = c1.forward(x);
         out = r1.forward(out);
-        auto flat_out = flat.forward(out); // ⬅️ reuse flat
+        out = p1.forward(out);
+        auto flat_out = flat.forward(out);
         auto out3 = fc2.forward(flat_out);
 
         std::vector<int> predictions(out3.size());
