@@ -1,105 +1,140 @@
 #include "data_loader.h"
+#include "model.h"
+#include "train.h"
+#include "utils.h" // Include the updated utils.h
 #include <iostream>
-#include <vector>
-#include <cassert>
-#include <iomanip>
-#include <map> // Use std::map for more efficient counting
+#include <random>
+#include <algorithm>
+#include <iomanip> // for std::setw
+
+void print_progress_bar(size_t current, size_t total, int width = 50) {
+    float progress = static_cast<float>(current) / total;
+    int pos = static_cast<int>(width * progress);
+
+    std::cout << "\r[";
+    for (int i = 0; i < width; ++i) {
+        if (i < pos)
+            std::cout << "=";
+        else if (i == pos)
+            std::cout << ">";
+        else
+            std::cout << " ";
+    }
+    std::cout << "] " << int(progress * 100.0) << "%";
+    std::cout.flush();
+}
 
 int main() {
     std::cout << "📦 Loading MNIST data...\n";
 
-    // 1. Test load_csv_images
-    std::cout << "Testing load_csv_images...\n";
-    std::vector<Image> all_images = load_csv_images("../MNIST/train_images.csv"); // Adjust the path if needed
-    if (all_images.empty()) {
-        std::cerr << "Error: load_csv_images returned an empty vector.  Check the file path and data.\n";
-        return 1;
-    }
-    std::cout << "Loaded " << all_images.size() << " images.\n";
-    assert(all_images.size() > 0); // Basic sanity check
+    std::vector<Image> all_images = load_csv_images("../MNIST/train_images.csv");
+    std::vector<int> all_labels = load_csv_labels("../MNIST/train_labels.csv");
 
-    // Check the size of the first image.  MNIST images are 28x28 = 784
-    if (!all_images.empty() && all_images[0].size() != 784) {
-        std::cerr << "Error: First image has incorrect size. Expected 784, got " << all_images[0].size() << "\n";
-        return 1;
-    }
-    std::cout << "First image size check passed.\n";
+    std::vector<Image> x_train_flat, x_test_flat;
+    std::vector<int> y_train, y_test;
 
-    // Check some pixel values of the first image.
-    std::cout << "Pixel values of the first image (first 10 pixels):\n";
-    for (size_t i = 0; i < std::min<size_t>(10, all_images[0].size()); ++i) {
-        std::cout << std::fixed << std::setprecision(3) << all_images[0][i] << " ";
-    }
-    std::cout << std::endl;
+    select_balanced_subset(all_images, all_labels, x_train_flat, y_train, 500);
+    select_balanced_subset(all_images, all_labels, x_test_flat, y_test, 10);
 
-    // 2. Test load_csv_labels
-    std::cout << "\nTesting load_csv_labels...\n";
-    std::vector<Label> all_labels = load_csv_labels("../MNIST/train_labels.csv"); // Adjust the path if needed
-    if (all_labels.empty()) {
-        std::cerr << "Error: load_csv_labels returned an empty vector. Check the file path and data.\n";
-        return 1;
-    }
-    std::cout << "Loaded " << all_labels.size() << " labels.\n";
-    assert(all_labels.size() > 0);
+    auto to_tensor = [](const std::vector<Image>& data) {
+        // Change float to double to match Tensor4D definition
+        Tensor4D out(data.size(), std::vector<std::vector<std::vector<double>>>(
+                                      1, std::vector<std::vector<double>>(
+                                             28, std::vector<double>(28, 0.0))));
+        for (size_t i = 0; i < data.size(); ++i)
+            for (int r = 0; r < 28; ++r)
+                for (int c = 0; c < 28; ++c)
+                    out[i][0][r][c] = data[i][r * 28 + c];
+        return out;
+    };
 
-    if (all_images.size() != all_labels.size()) {
-        std::cerr << "Error: Number of images and labels do not match.\n";
-        return 1;
-    }
-    std::cout << "Number of images and labels match.\n";
+    Tensor4D x_train = to_tensor(x_train_flat);
+    Tensor4D x_test = to_tensor(x_test_flat);
 
-    // Print first 10 labels
-    std::cout << "First 10 labels: ";
-    for (size_t i = 0; i < std::min<size_t>(10, all_labels.size()); ++i)
-        std::cout << all_labels[i] << " ";
-    std::cout << std::endl;
+    CNN model; // Use the namespace ML
+    double lr = 10;  // Use double for consistency
+    int epochs = 5;
+    int batch_size = 64;
 
+    std::vector<double> train_loss, train_acc; // Use double
 
-    // 3. Test select_balanced_subset
-    std::cout << "\nTesting select_balanced_subset...\n";
-    std::vector<Image> selected_images;
-    std::vector<Label> selected_labels;
-    int per_class = 10;
-    select_balanced_subset(all_images, all_labels, selected_images, selected_labels, per_class);
-    if (selected_images.empty()) {
-        std::cerr << "Error: selected image is empty";
-        return 1;
-    }
-    if (selected_labels.empty()) {
-        std::cerr << "Error: selected label is empty";
-        return 1;
-    }
-    std::cout << "Selected " << selected_images.size() << " images.\n";
-    std::cout << "Selected " << selected_labels.size() << " labels.\n";
-    assert(selected_images.size() == 10 * per_class); // 10 classes in MNIST
-    assert(selected_labels.size() == 10 * per_class);
+    std::cout << "🚀 Starting training...\n";
 
-    // Check that the subset is balanced
-    std::map<int, int> label_counts; // Use std::map
-    for (int label : selected_labels) {
-        label_counts[label]++;
-    }
-    bool balanced = true;
-    for (int i = 0; i < 10; ++i) {
-        if (label_counts[i] != per_class) {
-            balanced = false;
-            break;
+    for (int epoch = 0; epoch < epochs; ++epoch) {
+        std::cout << "\n📘 Epoch " << (epoch + 1) << "/" << epochs << "\n";
+
+        std::vector<int> indices(x_train.size());
+        std::iota(indices.begin(), indices.end(), 0);
+        std::shuffle(indices.begin(), indices.end(), std::mt19937(std::random_device{}()));
+
+        Tensor4D x_train_shuffled;
+        std::vector<int> y_train_shuffled;
+
+        for (int idx : indices) {
+            x_train_shuffled.push_back(x_train[idx]);
+            y_train_shuffled.push_back(y_train[idx]);
         }
-    }
-    if (balanced)
-        std::cout << "Subset is balanced (" << per_class << " images per class).\n";
-    else {
-        std::cerr << "Error: Subset is not balanced.\n";
-        for (int i = 0; i < 10; ++i)
-            std::cout << "Class " << i << ": " << label_counts[i] << " images\n";
-        return 1; // Return 1 to indicate failure
+
+        double epoch_loss = 0.0; // Use double
+        int correct = 0;
+        int total = 0;
+
+        size_t steps = (x_train.size() + batch_size - 1) / batch_size;
+
+        for (size_t step = 0; step < steps; ++step) {
+            size_t i = step * batch_size;
+            size_t end = std::min(i + batch_size, x_train.size());
+            Tensor4D x_batch(x_train_shuffled.begin() + i, x_train_shuffled.begin() + end);
+            std::vector<int> y_batch(y_train_shuffled.begin() + i, y_train_shuffled.begin() + end);
+
+            double loss = model.forward(x_batch, y_batch); // Use double
+            model.backward(lr);
+            // Inspect gradient updates after backward()
+            if (step == 0 && epoch == 0) {
+                // Print weight before and after update (for fc1)
+                static double previous_weight = model.fc1.weights[0][0]; // Use double
+                std::cout << "\n🔍 Initial fc1.weights[0][0]: " << previous_weight << std::endl;
+
+                double new_weight = model.fc1.weights[0][0]; // Use double
+                std::cout << "🔁 After 1st backward, fc1.weights[0][0]: " << new_weight << std::endl;
+
+                double diff = new_weight - previous_weight; // Use double
+                std::cout << "📉 Weight change: " << diff << std::endl;
+            }
+
+            // Also inspect softmax outputs
+            if (step == 0 && epoch == 0) {
+                std::cout << "\n🧠 Softmax output for first sample: ";
+                const auto& probs = model.loss_fn.probs[0];
+                for (double p : probs) // Use double
+                    std::cout << std::fixed << std::setprecision(3) << p << " ";
+                std::cout << "\nTarget label: " << y_batch[0] << std::endl;
+            }
+
+            epoch_loss += loss;
+
+            std::vector<int> preds = model.predict(x_batch);
+            for (size_t j = 0; j < preds.size(); ++j)
+                if (preds[j] == y_batch[j])
+                    ++correct;
+            total += y_batch.size();
+
+            print_progress_bar(step + 1, steps);
+        }
+
+        double acc = static_cast<double>(correct) / total; // Use double
+        train_loss.push_back(epoch_loss / steps);
+        train_acc.push_back(acc);
+
+        std::cout << "\n✅ Epoch " << (epoch + 1) << " finished - Loss: "
+                  << std::fixed << std::setprecision(4) << train_loss.back()
+                  << ", Accuracy: " << std::fixed << std::setprecision(2)
+                  << train_acc.back() * 100.0 << "%\n"; // Use double
     }
 
-    // 4. Test save_images (basic test - visual inspection is best)
-    std::cout << "\nTesting save_images...\n";
-    save_images(selected_images, selected_labels, 5, "./test_output_images/"); // Save a few images
-    std::cout << "Saved 5 images to ./test_output_images/.  Please check the directory to visually verify the output.\n";
+    std::cout << "💾 Saving model to 'trained_model'...\n";
+    save_model(model, "trained_model"); // Use the namespace ML
 
-    std::cout << "\nData loading tests completed.  Please check for any error messages above and visually inspect the saved images.\n";
+    std::cout << "🎉 Done.\n";
     return 0;
 }
