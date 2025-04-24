@@ -169,34 +169,41 @@ public:
     Matrix mask;
 
     Matrix forward(const Matrix& x) {
-        mask = x;
+        int batch = x.size();
+        int features = x[0].size();
+
+        mask = Matrix(batch, std::vector<double>(features));
         Matrix out = x;
 
         int active_count = 0;
-        int total_count = 0;
+        int total_count = batch * features;
 
-        for (int i = 0; i < x.size(); ++i)
-            for (int j = 0; j < x[0].size(); ++j) {
-                double val = x[i][j];
-                if (val > 0.0) {
+        for (int i = 0; i < batch; ++i) {
+            for (int j = 0; j < features; ++j) {
+                if (x[i][j] > 0.0) {
                     mask[i][j] = 1.0;
                     ++active_count;
                 } else {
                     mask[i][j] = 0.0;
                     out[i][j] = 0.0;
                 }
-                ++total_count;
             }
+        }
 
         return out;
     }
 
     Matrix backward(const Matrix& d_out, double) {
-        Matrix out = d_out;
-        for (int i = 0; i < d_out.size(); ++i)
-            for (int j = 0; j < d_out[0].size(); ++j)
-                out[i][j] *= mask[i][j];
-        return out;
+        int batch = d_out.size();
+        int features = d_out[0].size();
+
+        Matrix grad = d_out;
+
+        for (int i = 0; i < batch; ++i)
+            for (int j = 0; j < features; ++j)
+                grad[i][j] *= mask[i][j];
+
+        return grad;
     }
 };
 

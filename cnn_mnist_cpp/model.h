@@ -1,8 +1,8 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include "layers.h" // Include the layers.h file
-#include "loss.h"   // Include the loss.h file
+#include "layers.h"
+#include "loss.h"
 #include <vector>
 #include <algorithm>
 #include <iostream>
@@ -13,16 +13,22 @@ public:
     ReLU r1;
     MaxPool2D p1;
     Flatten flat;
-    Dense fc2;
-    SoftmaxCrossEntropy loss_fn;
 
+    Dense fc1;       // ⬅️ Hidden layer (1690 → 128)
+    ReLU2D r2;       // ⬅️ ReLU for hidden layer
+    Dense fc2;       // ⬅️ Output layer (128 → 10)
+
+    SoftmaxCrossEntropy loss_fn;
     std::vector<std::vector<double>> logits;
 
     CNN()
-        : c1(1, 10, 3),       // 1 input channel, 10 filters, 3x3 kernel
+        : c1(1, 10, 3),
           r1(),
           p1(),
-          fc2(13 * 13 * 10, 10) // ⬅️ After Conv(26x26) → MaxPool(13x13), 10 channels
+          flat(),
+          fc1(13 * 13 * 10, 128), // 1690 → 128
+          r2(),
+          fc2(128, 10)            // 128 → 10
     {}
 
     double forward(const Tensor4D& x, const std::vector<int>& y) {
@@ -30,14 +36,17 @@ public:
         out = r1.forward(out);
         out = p1.forward(out);
         std::vector<std::vector<double>> flat_out = flat.forward(out);
-        logits = fc2.forward(flat_out);
-        double loss = loss_fn.forward(logits, y);
-        return loss;
+        auto hidden = fc1.forward(flat_out);
+        auto activated = r2.forward(hidden);
+        logits = fc2.forward(activated);
+        return loss_fn.forward(logits, y);
     }
 
     void backward(double lr) {
         auto grad = loss_fn.backward();
         grad = fc2.backward(grad, lr);
+        grad = r2.backward(grad, lr);
+        grad = fc1.backward(grad, lr);
         Tensor4D grad4D = flat.backward(grad);
         grad4D = p1.backward(grad4D, lr);
         grad4D = r1.backward(grad4D, lr);
@@ -49,7 +58,9 @@ public:
         out = r1.forward(out);
         out = p1.forward(out);
         auto flat_out = flat.forward(out);
-        auto out3 = fc2.forward(flat_out);
+        auto hidden = fc1.forward(flat_out);
+        auto activated = r2.forward(hidden);
+        auto out3 = fc2.forward(activated);
 
         std::vector<int> predictions(out3.size());
         for (size_t i = 0; i < out3.size(); ++i) {

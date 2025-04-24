@@ -5,22 +5,53 @@
 #include <random>
 #include <algorithm>
 #include <iomanip>
+#include <cmath>
 
 void print_progress_bar(size_t current, size_t total, int width = 50) {
     float progress = static_cast<float>(current) / total;
     int pos = static_cast<int>(width * progress);
-
     std::cout << "\r[";
-    for (int i = 0; i < width; ++i) {
-        if (i < pos)
-            std::cout << "=";
-        else if (i == pos)
-            std::cout << ">";
-        else
-            std::cout << " ";
-    }
+    for (int i = 0; i < width; ++i)
+        std::cout << (i < pos ? "=" : (i == pos ? ">" : " "));
     std::cout << "] " << int(progress * 100.0) << "%";
     std::cout.flush();
+}
+
+bool compare_matrix_verbose(const std::vector<std::vector<double>>& a,
+                            const std::vector<std::vector<double>>& b,
+                            const std::string& name, double tol = 1e-9) {
+    if (a.size() != b.size() || a[0].size() != b[0].size()) {
+        std::cout << "❌ " << name << " shape mismatch!\n";
+        return false;
+    }
+
+    bool match = true;
+    for (size_t i = 0; i < a.size(); ++i)
+        for (size_t j = 0; j < a[0].size(); ++j)
+            if (std::abs(a[i][j] - b[i][j]) > tol) {
+                std::cout << "❌ " << name << " mismatch at [" << i << "][" << j << "]: "
+                          << a[i][j] << " vs " << b[i][j] << "\n";
+                match = false;
+            }
+    return match;
+}
+
+bool compare_vector_verbose(const std::vector<double>& a,
+                            const std::vector<double>& b,
+                            const std::string& name, double tol = 1e-9) {
+    if (a.size() != b.size()) {
+        std::cout << "❌ " << name << " size mismatch!\n";
+        return false;
+    }
+
+    bool match = true;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::abs(a[i] - b[i]) > tol) {
+            std::cout << "❌ " << name << " mismatch at [" << i << "]: "
+                      << a[i] << " vs " << b[i] << "\n";
+            match = false;
+        }
+    return match;
 }
 
 int main() {
@@ -47,14 +78,12 @@ int main() {
     };
 
     Tensor4D x_train = to_tensor(x_train_flat);
-    Tensor4D x_test  = to_tensor(x_test_flat);
+    Tensor4D x_test = to_tensor(x_test_flat);
 
     CNN model;
     double lr = 0.01;
-    int epochs = 5;
+    int epochs = 1;
     int batch_size = 64;
-
-    std::vector<double> train_loss, train_acc;
 
     std::cout << "🚀 Starting training...\n";
 
@@ -67,50 +96,25 @@ int main() {
 
         Tensor4D x_train_shuffled;
         std::vector<int> y_train_shuffled;
-
         for (int idx : indices) {
             x_train_shuffled.push_back(x_train[idx]);
             y_train_shuffled.push_back(y_train[idx]);
         }
 
-        double epoch_loss = 0.0;
-        int correct = 0;
-        int total = 0;
-
         size_t steps = (x_train.size() + batch_size - 1) / batch_size;
-
         for (size_t step = 0; step < steps; ++step) {
             size_t i = step * batch_size;
             size_t end = std::min(i + batch_size, x_train.size());
             Tensor4D x_batch(x_train_shuffled.begin() + i, x_train_shuffled.begin() + end);
             std::vector<int> y_batch(y_train_shuffled.begin() + i, y_train_shuffled.begin() + end);
 
-            double loss = model.forward(x_batch, y_batch);
+            model.forward(x_batch, y_batch);
             model.backward(lr);
-
-            epoch_loss += loss;
-
-            std::vector<int> preds = model.predict(x_batch);
-            for (size_t j = 0; j < preds.size(); ++j)
-                if (preds[j] == y_batch[j]) ++correct;
-            total += y_batch.size();
-
             print_progress_bar(step + 1, steps);
         }
-
-        double acc = static_cast<double>(correct) / total;
-        train_loss.push_back(epoch_loss / steps);
-        train_acc.push_back(acc);
-
-        std::cout << "\n✅ Epoch " << (epoch + 1) << " finished - Loss: "
-                  << std::fixed << std::setprecision(4) << train_loss.back()
-                  << ", Accuracy: " << std::fixed << std::setprecision(2)
-                  << train_acc.back() * 100.0 << "%\n";
     }
 
-    std::cout << "💾 Saving model to 'trained_model'...\n";
+    std::cout << "\n💾 Saving model to 'trained_model'...\n";
     save_model(model, "trained_model");
-
-    std::cout << "🎉 Done.\n";
     return 0;
 }

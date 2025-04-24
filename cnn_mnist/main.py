@@ -52,6 +52,7 @@ for epoch in range(epochs):
     np.save("train_acc.npy", np.array(train_acc))
 
 end_time = time.time()
+np.save("training_time.npy", np.array(end_time))
 print(f"\nTotal Training Time: {end_time - start_time:.2f} seconds")
 
 # Evaluate on test set
